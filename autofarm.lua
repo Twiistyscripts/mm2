@@ -5,50 +5,32 @@ local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
 -- SETTINGS
-local SEARCH_INTERVAL = 0.25 -- faster scanning
+local SEARCH_INTERVAL = 0.25
 local PLATFORM_SIZE = Vector3.new(6, 1, 6)
-local MOVE_TIME = 0.35 -- 2x faster tween
-local UNDER_OFFSET = 10 -- go under the map slightly
-local HEAD_OFFSET = 3 -- lift platform so player's head touches coin
+local MOVE_TIME = 0.35
+local UNDER_OFFSET = 10
+local HEAD_OFFSET = 3
 
--- Create platform
-local function createPlatform()
-    local platform = Instance.new("Part")
-    platform.Size = PLATFORM_SIZE
-    platform.Anchored = true
-    platform.CanCollide = true
-    platform.Transparency = 0.2
-    platform.Material = Enum.Material.ForceField
-    platform.Color = Color3.fromRGB(255, 150, 0)
-    platform.Name = "AutoFarmPlatform"
-    platform.Parent = Workspace
-    return platform
-end
-
--- Attach player smoothly to platform
-local function attachPlayerToPlatform(character, platform)
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    -- Remove old attachments
-    for _, obj in ipairs(hrp:GetChildren()) do
-        if obj:IsA("AlignPosition") or obj:IsA("AlignOrientation") then
-            obj:Destroy()
-        end
-    end
-
-    -- Add new attachments
-    local att0 = hrp:FindFirstChild("Attachment") or Instance.new("Attachment", hrp)
-    local att1 = platform:FindFirstChild("Attachment") or Instance.new("Attachment", platform)
-
-    local align = Instance.new("AlignPosition")
-    align.Name = "AlignToPlatform"
-    align.MaxForce = math.huge
-    align.Responsiveness = 200
-    align.Mode = Enum.PositionAlignmentMode.OneAttachment
-    align.Attachment0 = att0
-    align.Attachment1 = att1
-    align.Parent = hrp
+-- Create platforms
+local function createPlatforms()
+    local bottomPlatform = Instance.new("Part")
+    bottomPlatform.Size = PLATFORM_SIZE
+    bottomPlatform.Anchored = true
+    bottomPlatform.CanCollide = true
+    bottomPlatform.Transparency = 0.2
+    bottomPlatform.Material = Enum.Material.ForceField
+    bottomPlatform.Color = Color3.fromRGB(255, 150, 0)
+    bottomPlatform.Name = "AutoFarmBottomPlatform"
+    
+    local topPlatform = bottomPlatform:Clone()
+    topPlatform.Name = "AutoFarmTopPlatform"
+    topPlatform.Transparency = 0.5
+    topPlatform.Color = Color3.fromRGB(0, 150, 255)
+    
+    bottomPlatform.Parent = Workspace
+    topPlatform.Parent = Workspace
+    
+    return bottomPlatform, topPlatform
 end
 
 -- Get all valid coins
@@ -79,21 +61,27 @@ local function getClosestCoin(position)
     return closest
 end
 
--- Tween platform under map below the target
-local function tweenPlatform(platform, targetPos)
+-- Move platforms together
+local function movePlatforms(bottomPlatform, topPlatform, targetPos)
     local underMapPos = Vector3.new(targetPos.X, targetPos.Y - UNDER_OFFSET, targetPos.Z)
-    local tween = TweenService:Create(platform, TweenInfo.new(MOVE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = underMapPos})
-    tween:Play()
-    tween.Completed:Wait()
+    local topPos = Vector3.new(targetPos.X, targetPos.Y + HEAD_OFFSET, targetPos.Z)
+    
+    local bottomTween = TweenService:Create(bottomPlatform, TweenInfo.new(MOVE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = underMapPos})
+    local topTween = TweenService:Create(topPlatform, TweenInfo.new(MOVE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = topPos})
+    
+    bottomTween:Play()
+    topTween:Play()
+    
+    bottomTween.Completed:Wait()
 end
 
--- Make player look at the coin
-local function lookAtTarget(character, targetPos)
-    local head = character:FindFirstChild("Head")
-    if head then
-        local dir = (targetPos - head.Position).Unit
-        head.CFrame = CFrame.new(head.Position, head.Position + dir)
-    end
+-- Position player between platforms
+local function positionPlayer(character, bottomPlatform, topPlatform)
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    local middleY = (bottomPlatform.Position.Y + topPlatform.Position.Y) / 2
+    hrp.CFrame = CFrame.new(Vector3.new(bottomPlatform.Position.X, middleY, bottomPlatform.Position.Z))
 end
 
 -- Wait until player respawns
@@ -104,35 +92,35 @@ end
 
 -- Main farming loop
 local function autoFarm()
-    local platform = Workspace:FindFirstChild("AutoFarmPlatform") or createPlatform()
+    local bottomPlatform = Workspace:FindFirstChild("AutoFarmBottomPlatform") 
+    local topPlatform = Workspace:FindFirstChild("AutoFarmTopPlatform")
+    
+    if not bottomPlatform or not topPlatform then
+        bottomPlatform, topPlatform = createPlatforms()
+    end
 
     while true do
         local character = LocalPlayer.Character or waitForRespawn()
         local hrp = character:FindFirstChild("HumanoidRootPart")
         if not hrp then
-            -- wait until respawned fully
             character = waitForRespawn()
             hrp = character:WaitForChild("HumanoidRootPart")
         end
 
-        -- Always reattach to platform after respawn
-        attachPlayerToPlatform(character, platform)
-
         local coin = getClosestCoin(hrp.Position)
         if coin then
-            -- Move platform under coin
-            tweenPlatform(platform, coin.Position)
-
-            -- Align player's head to coin (touch with head)
-            local finalPos = coin.Position + Vector3.new(0, HEAD_OFFSET, 0)
-            hrp.CFrame = CFrame.new(finalPos)
-
-            -- Face towards coin
-            lookAtTarget(character, coin.Position)
-
+            -- Move platforms to coin location
+            movePlatforms(bottomPlatform, topPlatform, coin.Position)
+            
+            -- Position player between platforms
+            positionPlayer(character, bottomPlatform, topPlatform)
+            
             task.wait(SEARCH_INTERVAL)
         else
-            -- No coins left, just stay idle
+            -- No coins found, move to void
+            local voidPos = Vector3.new(0, -1000, 0)
+            movePlatforms(bottomPlatform, topPlatform, voidPos)
+            positionPlayer(character, bottomPlatform, topPlatform)
             task.wait(0.5)
         end
     end
