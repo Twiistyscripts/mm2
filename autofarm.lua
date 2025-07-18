@@ -1,11 +1,8 @@
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 
 -- SETTINGS
 local SEARCH_INTERVAL = 0.25 -- faster scanning
@@ -14,7 +11,7 @@ local MOVE_TIME = 0.35 -- 2x faster tween
 local UNDER_OFFSET = 10 -- go under the map slightly
 local HEAD_OFFSET = 3 -- lift platform so player's head touches coin
 
--- Create platform under the map
+-- Create platform
 local function createPlatform()
     local platform = Instance.new("Part")
     platform.Size = PLATFORM_SIZE
@@ -31,31 +28,44 @@ end
 -- Attach player smoothly to platform
 local function attachPlayerToPlatform(character, platform)
     local hrp = character:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        hrp.Anchored = false
-        local align = hrp:FindFirstChild("AlignPosition") or Instance.new("AlignPosition")
-        align.Name = "AlignPosition"
-        align.MaxForce = math.huge
-        align.Responsiveness = 200
-        align.Mode = Enum.PositionAlignmentMode.OneAttachment
-        align.Attachment0 = hrp:FindFirstChild("Attachment") or Instance.new("Attachment", hrp)
-        align.Attachment1 = platform:FindFirstChild("Attachment") or Instance.new("Attachment", platform)
-        align.Parent = hrp
+    if not hrp then return end
+
+    -- Remove old attachments
+    for _, obj in ipairs(hrp:GetChildren()) do
+        if obj:IsA("AlignPosition") or obj:IsA("AlignOrientation") then
+            obj:Destroy()
+        end
     end
+
+    -- Add new attachments
+    local att0 = hrp:FindFirstChild("Attachment") or Instance.new("Attachment", hrp)
+    local att1 = platform:FindFirstChild("Attachment") or Instance.new("Attachment", platform)
+
+    local align = Instance.new("AlignPosition")
+    align.Name = "AlignToPlatform"
+    align.MaxForce = math.huge
+    align.Responsiveness = 200
+    align.Mode = Enum.PositionAlignmentMode.OneAttachment
+    align.Attachment0 = att0
+    align.Attachment1 = att1
+    align.Parent = hrp
 end
 
--- Find all Coin_Server parts anywhere
+-- Get all valid coins
 local function getAllCoins()
     local coins = {}
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj.Name == "Coin_Server" and obj:IsA("BasePart") then
-            table.insert(coins, obj)
+            local collected = obj:GetAttribute("Collected")
+            if collected ~= true and obj.Transparency < 1 then
+                table.insert(coins, obj)
+            end
         end
     end
     return coins
 end
 
--- Find closest coin
+-- Find closest valid coin
 local function getClosestCoin(position)
     local coins = getAllCoins()
     local closest, dist = nil, math.huge
@@ -69,17 +79,15 @@ local function getClosestCoin(position)
     return closest
 end
 
--- Tween platform under the map at target
+-- Tween platform under map below the target
 local function tweenPlatform(platform, targetPos)
-    -- move under the map but aligned horizontally
     local underMapPos = Vector3.new(targetPos.X, targetPos.Y - UNDER_OFFSET, targetPos.Z)
-    local goal = {Position = underMapPos}
-    local tween = TweenService:Create(platform, TweenInfo.new(MOVE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), goal)
+    local tween = TweenService:Create(platform, TweenInfo.new(MOVE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = underMapPos})
     tween:Play()
     tween.Completed:Wait()
 end
 
--- Make player head face coin
+-- Make player look at the coin
 local function lookAtTarget(character, targetPos)
     local head = character:FindFirstChild("Head")
     if head then
@@ -88,39 +96,43 @@ local function lookAtTarget(character, targetPos)
     end
 end
 
--- Detect if player respawned
+-- Wait until player respawns
 local function waitForRespawn()
     repeat task.wait(0.2) until LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     return LocalPlayer.Character
 end
 
--- Main loop
+-- Main farming loop
 local function autoFarm()
     local platform = Workspace:FindFirstChild("AutoFarmPlatform") or createPlatform()
-    attachPlayerToPlatform(getClosestCoin() or LocalPlayer.Character, platform)
-    
+
     while true do
-        local char = LocalPlayer.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then
-            char = waitForRespawn()
-            attachPlayerToPlatform(char, platform)
+        local character = LocalPlayer.Character or waitForRespawn()
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            -- wait until respawned fully
+            character = waitForRespawn()
+            hrp = character:WaitForChild("HumanoidRootPart")
         end
 
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local coin = getClosestCoin(hrp.Position)
+        -- Always reattach to platform after respawn
+        attachPlayerToPlatform(character, platform)
 
+        local coin = getClosestCoin(hrp.Position)
         if coin then
-            -- move platform under map below coin
+            -- Move platform under coin
             tweenPlatform(platform, coin.Position)
 
-            -- lift player so their head touches coin
+            -- Align player's head to coin (touch with head)
             local finalPos = coin.Position + Vector3.new(0, HEAD_OFFSET, 0)
-            hrp.CFrame = CFrame.new(finalPos.X, finalPos.Y, finalPos.Z)
+            hrp.CFrame = CFrame.new(finalPos)
 
-            lookAtTarget(char, coin.Position)
+            -- Face towards coin
+            lookAtTarget(character, coin.Position)
+
             task.wait(SEARCH_INTERVAL)
         else
-            -- no coins left, just wait and check again
+            -- No coins left, just stay idle
             task.wait(0.5)
         end
     end
