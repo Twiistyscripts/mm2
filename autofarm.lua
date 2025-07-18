@@ -4,10 +4,10 @@ local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
 -- SETTINGS
-local SEARCH_INTERVAL = 0.25
+local SEARCH_INTERVAL = 0.1 -- Faster checking
 local PLATFORM_SIZE = Vector3.new(6, 1, 6)
-local UNDER_OFFSET = 10
-local HEAD_OFFSET = 3
+local UNDER_OFFSET = 3 -- Closer to coin bottom
+local HEAD_OFFSET = 1.5 -- Better head positioning
 
 -- Create platforms
 local function createPlatforms()
@@ -31,7 +31,7 @@ local function createPlatforms()
     return bottomPlatform, topPlatform
 end
 
--- Fast coin check using attribute and transparency
+-- Get valid coins
 local function getAllCoins()
     local coins = {}
     for _, obj in ipairs(Workspace:GetDescendants()) do
@@ -58,21 +58,22 @@ local function getClosestCoin(position)
     return closest
 end
 
--- Move platforms instantly
-local function movePlatforms(bottomPlatform, topPlatform, targetPos)
-    bottomPlatform.Position = Vector3.new(targetPos.X, targetPos.Y - UNDER_OFFSET, targetPos.Z)
-    topPlatform.Position = Vector3.new(targetPos.X, targetPos.Y + HEAD_OFFSET, targetPos.Z)
-end
-
--- Position player between platforms
-local function positionPlayer(character, bottomPlatform)
+-- Position platforms and player
+local function positionForCoin(bottomPlatform, topPlatform, character, coin)
+    -- Position platforms relative to coin
+    local coinPos = coin.Position
+    bottomPlatform.Position = Vector3.new(coinPos.X, coinPos.Y - UNDER_OFFSET, coinPos.Z)
+    topPlatform.Position = Vector3.new(coinPos.X, coinPos.Y + HEAD_OFFSET, coinPos.Z)
+    
+    -- Position player's head at coin level
+    local head = character:FindFirstChild("Head")
     local hrp = character:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        hrp.CFrame = CFrame.new(bottomPlatform.Position + Vector3.new(0, UNDER_OFFSET/2, 0))
+    if head and hrp then
+        hrp.CFrame = CFrame.new(coinPos.X, coinPos.Y - 1.5, coinPos.Z) -- Head will be at coin level
     end
 end
 
--- Wait until player respawns
+-- Wait for respawn
 local function waitForRespawn()
     repeat task.wait() until LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     return LocalPlayer.Character
@@ -92,13 +93,12 @@ local function autoFarm()
 
         local coin = getClosestCoin(hrp.Position)
         if coin then
-            -- Move platforms to coin location
-            movePlatforms(bottomPlatform, topPlatform, coin.Position)
-            positionPlayer(character, bottomPlatform)
+            positionForCoin(bottomPlatform, topPlatform, character, coin)
         else
-            -- No valid coins found, move to void
-            movePlatforms(bottomPlatform, topPlatform, Vector3.new(0, -1000, 0))
-            positionPlayer(character, bottomPlatform)
+            -- No coins, move to void
+            bottomPlatform.Position = Vector3.new(0, -1000, 0)
+            topPlatform.Position = Vector3.new(0, -1000, 0)
+            hrp.CFrame = CFrame.new(0, -1000, 0)
         end
         task.wait(SEARCH_INTERVAL)
     end
