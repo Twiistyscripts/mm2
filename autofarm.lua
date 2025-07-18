@@ -14,6 +14,7 @@ local COIN_NAME = "Coin_Server"
 local COLLECTION_INTERVAL = 0.5
 local TWEEN_DURATION = 0.3
 local SAFE_SPACE_CFRAME = CFrame.new(0, -100, 0) -- Position in the void for reset
+local PLATFORM_OFFSET = Vector3.new(0, -5, 0) -- How far below coin to position platform
 
 -- Create collection platform
 local collectionPlatform = Instance.new("Part")
@@ -25,14 +26,19 @@ collectionPlatform.Transparency = 0.5
 collectionPlatform.Color = Color3.fromRGB(0, 255, 0)
 collectionPlatform.Parent = Workspace
 
--- Function to find all coins in the workspace
-local function findCoins()
+-- Keep track of collected coins
+local collectedCoins = {}
+
+-- Function to find all active coins in the workspace
+local function findActiveCoins()
     local coins = {}
     
     local function searchDescendants(parent)
         for _, descendant in ipairs(parent:GetDescendants()) do
             if descendant.Name == COIN_NAME and descendant:IsA("BasePart") then
-                table.insert(coins, descendant)
+                if not collectedCoins[descendant] then
+                    table.insert(coins, descendant)
+                end
             end
         end
     end
@@ -63,8 +69,13 @@ end
 
 -- Function to collect a coin
 local function collectCoin(coin)
+    if not coin or not coin.Parent then return end
+    
+    -- Mark coin as collected
+    collectedCoins[coin] = true
+    
     -- Move platform under the coin
-    local targetCFrame = CFrame.new(coin.Position) * CFrame.new(0, -5, 0)
+    local targetCFrame = CFrame.new(coin.Position) * CFrame.new(PLATFORM_OFFSET)
     
     -- Create tween for smooth movement
     local tweenInfo = TweenInfo.new(
@@ -83,56 +94,43 @@ local function collectCoin(coin)
     wait(0.1)
 end
 
--- Function to reset position
-local function resetPosition()
-    collectionPlatform.CFrame = SAFE_SPACE_CFRAME
-    humanoidRootPart.CFrame = SAFE_SPACE_CFRAME * CFrame.new(0, 5, 0)
+-- Function to reset collection state
+local function resetCollection()
+    collectedCoins = {}
+    collectionPlatform.CFrame = humanoidRootPart.CFrame * CFrame.new(0, -5, 0)
 end
 
 -- Main collection loop
 local function startCollection()
     while true do
-        -- Find all coins
-        local coins = findCoins()
+        -- Find all active coins
+        local coins = findActiveCoins()
         
         if #coins > 0 then
-            -- Collect each coin in order of proximity
-            while #coins > 0 do
-                local currentPosition = collectionPlatform.Position
-                local closestCoin = getClosestCoin(currentPosition, coins)
-                
-                if closestCoin then
-                    collectCoin(closestCoin)
-                    
-                    -- Remove collected coin from list
-                    for i, coin in ipairs(coins) do
-                        if coin == closestCoin then
-                            table.remove(coins, i)
-                            break
-                        end
-                    end
-                end
-                
-                wait(COLLECTION_INTERVAL)
+            -- Get closest coin to current position
+            local currentPosition = collectionPlatform.Position
+            local closestCoin = getClosestCoin(currentPosition, coins)
+            
+            if closestCoin then
+                collectCoin(closestCoin)
             end
+        else
+            -- No coins found, keep platform under player
+            collectionPlatform.CFrame = humanoidRootPart.CFrame * CFrame.new(0, -5, 0)
         end
         
-        -- Reset position when no coins left
-        resetPosition()
-        
-        -- Wait a bit before checking for coins again
-        wait(2)
+        wait(COLLECTION_INTERVAL)
     end
 end
 
 -- Initialize
-collectionPlatform.CFrame = humanoidRootPart.CFrame * CFrame.new(0, -5, 0)
+resetCollection()
 
--- Start collection when character is ready
+-- Reset collection when character respawns
 player.CharacterAdded:Connect(function(newCharacter)
     character = newCharacter
     humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-    collectionPlatform.CFrame = humanoidRootPart.CFrame * CFrame.new(0, -5, 0)
+    resetCollection()
 end)
 
 -- Start the collection process
