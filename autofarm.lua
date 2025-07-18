@@ -1,119 +1,126 @@
--- Services
 local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
--- Local player
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 
--- Configuration
-local COIN_NAME = "Coin_Server"
-local CHECK_INTERVAL = 0.5
-local TWEEN_DURATION = 0.3
-local PLATFORM_OFFSET = Vector3.new(0, -5, 0)
+-- SETTINGS
+local SEARCH_INTERVAL = 0.5
+local PLATFORM_SIZE = Vector3.new(6, 1, 6)
+local MOVE_TIME = 0.75
+local SAFE_VOID_POS = Vector3.new(0, -500, 0)
 
--- Create collection platform
-local platform = Instance.new("Part")
-platform.Name = "CoinCollectorPlatform"
-platform.Anchored = true
-platform.CanCollide = false
-platform.Size = Vector3.new(4, 1, 4)
-platform.Transparency = 0.7
-platform.Color = Color3.fromRGB(0, 255, 0)
-platform.Parent = Workspace
+-- Create floating platform under player
+local function createPlatform()
+    local platform = Instance.new("Part")
+    platform.Size = PLATFORM_SIZE
+    platform.Anchored = true
+    platform.CanCollide = true
+    platform.Transparency = 0.2
+    platform.Material = Enum.Material.ForceField
+    platform.Color = Color3.fromRGB(0, 200, 255)
+    platform.Name = "AutoFarmPlatform"
+    platform.Parent = Workspace
+    return platform
+end
 
--- Keep track of active coins
-local activeCoins = {}
-local platformMoving = false
+local function getCharacter()
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        return LocalPlayer.Character
+    end
+    return nil
+end
 
--- Function to find all coins in workspace
-local function findCoins()
+-- Find all Coin_Server objects anywhere in Workspace
+local function getAllCoins()
     local coins = {}
-    
-    local function scan(parent)
-        for _, child in ipairs(parent:GetChildren()) do
-            if child.Name == COIN_NAME and child:IsA("BasePart") then
-                table.insert(coins, child)
-            end
-            scan(child) -- Recursively scan children
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj.Name == "Coin_Server" and obj:IsA("BasePart") then
+            table.insert(coins, obj)
         end
     end
-    
-    scan(Workspace)
     return coins
 end
 
--- Function to move platform to coin
-local function moveToCoin(coin)
-    if not coin or not coin.Parent then return end
-    if platformMoving then return end
-    
-    platformMoving = true
-    
-    -- Calculate target position (under the coin)
-    local targetCFrame = CFrame.new(coin.Position + PLATFORM_OFFSET)
-    
-    -- Create smooth tween
-    local tweenInfo = TweenInfo.new(
-        TWEEN_DURATION,
-        Enum.EasingStyle.Quad,
-        Enum.EasingDirection.Out
-    )
-    
-    local tween = TweenService:Create(platform, tweenInfo, {CFrame = targetCFrame})
+-- Find closest Coin_Server to current position
+local function getClosestCoin(position)
+    local coins = getAllCoins()
+    local closest, dist = nil, math.huge
+    for _, coin in ipairs(coins) do
+        local d = (coin.Position - position).Magnitude
+        if d < dist then
+            closest = coin
+            dist = d
+        end
+    end
+    return closest
+end
+
+-- Tween platform smoothly to target position
+local function tweenPlatform(platform, targetPos)
+    local goal = {Position = targetPos}
+    local tween = TweenService:Create(platform, TweenInfo.new(MOVE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), goal)
     tween:Play()
-    
     tween.Completed:Wait()
-    platformMoving = false
 end
 
--- Main collection function
-local function collectCoins()
+-- Make player head look at the coin
+local function lookAtTarget(character, targetPos)
+    local head = character:FindFirstChild("Head")
+    if head then
+        local dir = (targetPos - head.Position).Unit
+        head.CFrame = CFrame.new(head.Position, head.Position + dir)
+    end
+end
+
+-- Main farming loop
+local function autoFarm()
+    local platform = Workspace:FindFirstChild("AutoFarmPlatform") or createPlatform()
+
     while true do
-        -- Find all current coins
-        local coins = findCoins()
-        
-        if #coins > 0 then
-            -- Sort coins by distance to platform
-            table.sort(coins, function(a, b)
-                return (a.Position - platform.Position).Magnitude < 
-                       (b.Position - platform.Position).Magnitude
-            end)
-            
-            -- Move to closest coin
-            moveToCoin(coins[1])
+        local char = getCharacter()
+        if not char then
+            -- Player is respawning
+            repeat task.wait(0.5) until getCharacter()
+            platform.Position = getCharacter():WaitForChild("HumanoidRootPart").Position - Vector3.new(0, 3, 0)
+        end
+
+        -- Search for closest coin
+        local coin = getClosestCoin(platform.Position)
+        if coin then
+            local coinPos = coin.Position - Vector3.new(0, 4, 0)
+            tweenPlatform(platform, coinPos)
+            lookAtTarget(getCharacter(), coin.Position)
+
+            -- Teleport player onto platform
+            getCharacter():WaitForChild("HumanoidRootPart").CFrame = platform.CFrame + Vector3.new(0, 3, 0)
+            task.wait(SEARCH_INTERVAL)
         else
-            -- No coins found, stay under player
-            if not platformMoving then
-                platform.CFrame = humanoidRootPart.CFrame * CFrame.new(0, -5, 0)
+            -- No coins left, go to safe void
+            tweenPlatform(platform, SAFE_VOID_POS)
+
+            -- Move player safely to void and reset
+            getCharacter():WaitForChild("HumanoidRootPart").CFrame = CFrame.new(SAFE_VOID_POS + Vector3.new(0, 5, 0))
+            task.wait(2)
+
+            -- Force reset to respawn
+            local humanoid = getCharacter():FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.Health = 0
             end
+
+            -- Wait for respawn
+            repeat task.wait(0.5) until getCharacter()
+
+            -- Move platform back under new spawn
+            platform.Position = getCharacter():WaitForChild("HumanoidRootPart").Position - Vector3.new(0, 3, 0)
+            task.wait(1)
         end
-        
-        wait(CHECK_INTERVAL)
     end
 end
 
--- Update platform position when character moves
-local function followCharacter()
-    while true do
-        if not platformMoving then
-            platform.CFrame = humanoidRootPart.CFrame * CFrame.new(0, -5, 0)
-        end
-        wait(0.1)
-    end
-end
-
--- Handle character respawns
-player.CharacterAdded:Connect(function(newCharacter)
-    character = newCharacter
-    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-end)
-
--- Start the functions
-spawn(followCharacter)
-spawn(collectCoins)
-
--- Initial position
-platform.CFrame = humanoidRootPart.CFrame * CFrame.new(0, -5, 0)
+-- Start farming
+task.spawn(autoFarm)
