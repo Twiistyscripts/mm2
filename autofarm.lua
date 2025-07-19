@@ -6,7 +6,7 @@ local LocalPlayer = Players.LocalPlayer
 local checkInterval = 0.5
 local tweenTime = 0.5
 local safeVoidPos = Vector3.new(0, -500, 0)
-local coinCollectionOffset = 2 -- how far below the coin to position
+local headHeightOffset = 1.5 -- Half of typical head height (3 units)
 
 if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
     LocalPlayer.CharacterAdded:Wait()
@@ -31,18 +31,6 @@ local function tweenMove(pos)
     local tween = TweenService:Create(moveBlock, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), {CFrame = CFrame.new(pos)})
     tween:Play()
     tween.Completed:Wait()
-end
-
-local function hasFullMessage()
-    for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
-        if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
-            local txt = gui.Text:lower()
-            if txt:find("full") then
-                return true
-            end
-        end
-    end
-    return false
 end
 
 local function getClosestCoin()
@@ -87,21 +75,12 @@ task.spawn(function()
         local hrp = getHRP()
         if not hrp then continue end
 
-        -- Only check for full message when not moving to a coin
         local coin = getClosestCoin()
-        if not coin and hasFullMessage() then
-            local hum = hrp.Parent:FindFirstChildOfClass("Humanoid")
-            if hum then 
-                hum.Health = 0 
-            end
-            continue
-        end
-
         if coin then
-            -- Position player slightly below the coin
+            -- Position player lower (half head height below coin)
             local target = Vector3.new(
                 coin.Position.X,
-                coin.Position.Y - coinCollectionOffset,
+                coin.Position.Y - headHeightOffset,
                 coin.Position.Z
             )
             tweenMove(target - Vector3.new(0, 3, 0)) -- Additional 3 unit offset for HRP
