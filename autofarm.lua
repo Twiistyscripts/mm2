@@ -6,6 +6,9 @@ local LocalPlayer = Players.LocalPlayer
 local checkInterval = 0.5
 local tweenTime = 0.5
 local safeVoidPos = Vector3.new(0, -500, 0)
+local lastResetTime = 0
+local resetCooldown = 5 -- seconds between allowed resets
+local coinCollectionOffset = 2 -- how far below the coin to position (2 units seems optimal)
 
 if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
     LocalPlayer.CharacterAdded:Wait()
@@ -90,19 +93,26 @@ task.spawn(function()
         local hrp = getHRP()
         if not hrp then continue end
 
-        -- Reset ONCE if GUI shows full
-        if isFullGUIVisible() and not hasResetForFull then
+        -- Reset only if cooldown has passed and GUI shows full
+        if isFullGUIVisible() and not hasResetForFull and (os.time() - lastResetTime) > resetCooldown then
             hasResetForFull = true
+            lastResetTime = os.time()
             local hum = hrp.Parent:FindFirstChildOfClass("Humanoid")
-            if hum then hum.Health = 0 end
+            if hum then 
+                hum.Health = 0 
+            end
             continue
         end
 
         local coin = getClosestCoin()
         if coin then
-            -- go directly UNDER coin so player's head touches it
-            local target = coin.Position - Vector3.new(0, 2.5, 0) 
-            tweenMove(target)
+            -- Position player slightly below the coin (using the optimal offset)
+            local target = Vector3.new(
+                coin.Position.X,
+                coin.Position.Y - coinCollectionOffset,
+                coin.Position.Z
+            )
+            tweenMove(target - Vector3.new(0, 3, 0)) -- Additional 3 unit offset for HRP
         else
             -- No coins, go to void and wait
             goToVoidSafe()
