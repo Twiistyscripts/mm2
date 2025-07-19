@@ -6,9 +6,7 @@ local LocalPlayer = Players.LocalPlayer
 local checkInterval = 0.5
 local tweenTime = 0.5
 local safeVoidPos = Vector3.new(0, -500, 0)
-local lastResetTime = 0
-local resetCooldown = 5 -- seconds between allowed resets
-local coinCollectionOffset = 2 -- how far below the coin to position (2 units seems optimal)
+local coinCollectionOffset = 2 -- how far below the coin to position
 
 if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
     LocalPlayer.CharacterAdded:Wait()
@@ -35,9 +33,9 @@ local function tweenMove(pos)
     tween.Completed:Wait()
 end
 
-local function isFullGUIVisible()
+local function hasFullMessage()
     for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
-        if gui:IsA("TextLabel") or gui:IsA("TextButton") then
+        if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
             local txt = gui.Text:lower()
             if txt:find("full") then
                 return true
@@ -72,18 +70,14 @@ local function goToVoidSafe()
     tweenMove(safeVoidPos)
 end
 
-local hasResetForFull = false
-
 LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(1)
-    hasResetForFull = false
     moveBlock.CFrame = char:WaitForChild("HumanoidRootPart").CFrame - Vector3.new(0,3,0)
 end)
 
 RunService.Heartbeat:Connect(function()
     local hrp = getHRP()
     if hrp then
-        -- keep player exactly on top of moveBlock
         hrp.CFrame = moveBlock.CFrame + Vector3.new(0,3,0)
     end
 end)
@@ -93,10 +87,9 @@ task.spawn(function()
         local hrp = getHRP()
         if not hrp then continue end
 
-        -- Reset only if cooldown has passed and GUI shows full
-        if isFullGUIVisible() and not hasResetForFull and (os.time() - lastResetTime) > resetCooldown then
-            hasResetForFull = true
-            lastResetTime = os.time()
+        -- Only check for full message when not moving to a coin
+        local coin = getClosestCoin()
+        if not coin and hasFullMessage() then
             local hum = hrp.Parent:FindFirstChildOfClass("Humanoid")
             if hum then 
                 hum.Health = 0 
@@ -104,9 +97,8 @@ task.spawn(function()
             continue
         end
 
-        local coin = getClosestCoin()
         if coin then
-            -- Position player slightly below the coin (using the optimal offset)
+            -- Position player slightly below the coin
             local target = Vector3.new(
                 coin.Position.X,
                 coin.Position.Y - coinCollectionOffset,
@@ -114,7 +106,6 @@ task.spawn(function()
             )
             tweenMove(target - Vector3.new(0, 3, 0)) -- Additional 3 unit offset for HRP
         else
-            -- No coins, go to void and wait
             goToVoidSafe()
         end
     end
