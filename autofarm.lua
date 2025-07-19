@@ -3,12 +3,10 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
--- Settings
 local checkInterval = 0.5
 local tweenTime = 0.5
 local safeVoidPos = Vector3.new(0, -500, 0)
 
--- Wait for character
 if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
     LocalPlayer.CharacterAdded:Wait()
 end
@@ -20,7 +18,7 @@ local function getHRP()
     return nil
 end
 
--- Create movement block
+-- movement block
 local moveBlock = Instance.new("Part")
 moveBlock.Anchored = true
 moveBlock.CanCollide = false
@@ -28,14 +26,12 @@ moveBlock.Size = Vector3.new(5,1,5)
 moveBlock.Transparency = 1
 moveBlock.Parent = workspace
 
--- Smooth move
-local function tweenMove(targetPos)
-    local tween = TweenService:Create(moveBlock, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), {CFrame = CFrame.new(targetPos)})
+local function tweenMove(pos)
+    local tween = TweenService:Create(moveBlock, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), {CFrame = CFrame.new(pos)})
     tween:Play()
     tween.Completed:Wait()
 end
 
--- Detect GUI with "full"
 local function isFullGUIVisible()
     for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
         if gui:IsA("TextLabel") or gui:IsA("TextButton") then
@@ -48,12 +44,11 @@ local function isFullGUIVisible()
     return false
 end
 
--- Find closest valid coin
 local function getClosestCoin()
-    local closest, dist = nil, math.huge
     local hrp = getHRP()
     if not hrp then return nil end
     
+    local closest, dist = nil, math.huge
     for _, coin in ipairs(workspace:GetDescendants()) do
         if coin.Name == "Coin_Server" and coin:IsA("BasePart") then
             local collected = coin:FindFirstChild("Collected")
@@ -70,51 +65,47 @@ local function getClosestCoin()
     return closest
 end
 
--- Go to safe void platform
 local function goToVoidSafe()
     tweenMove(safeVoidPos)
 end
 
--- Track reset state so it only resets ONCE per “full”
 local hasResetForFull = false
 
--- Respawn handler resets state
 LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(1)
     hasResetForFull = false
     moveBlock.CFrame = char:WaitForChild("HumanoidRootPart").CFrame - Vector3.new(0,3,0)
 end)
 
--- Keep block under player
 RunService.Heartbeat:Connect(function()
     local hrp = getHRP()
     if hrp then
-        hrp.CFrame = CFrame.new(moveBlock.Position + Vector3.new(0,3,0))
+        -- keep player exactly on top of moveBlock
+        hrp.CFrame = moveBlock.CFrame + Vector3.new(0,3,0)
     end
 end)
 
--- Main loop
 task.spawn(function()
     while task.wait(checkInterval) do
         local hrp = getHRP()
         if not hrp then continue end
 
-        -- If GUI says full and we haven't reset yet, do it ONCE
+        -- Reset ONCE if GUI shows full
         if isFullGUIVisible() and not hasResetForFull then
             hasResetForFull = true
-            hrp.Parent:FindFirstChildOfClass("Humanoid").Health = 0
+            local hum = hrp.Parent:FindFirstChildOfClass("Humanoid")
+            if hum then hum.Health = 0 end
             continue
         end
-        
+
         local coin = getClosestCoin()
         if coin then
-            local target = coin.Position + Vector3.new(0,3,0)
+            -- go directly UNDER coin so player's head touches it
+            local target = coin.Position - Vector3.new(0, 2.5, 0) 
             tweenMove(target)
         else
-            -- No coins, just wait safely in void
+            -- No coins, go to void and wait
             goToVoidSafe()
         end
     end
 end)
-
-
