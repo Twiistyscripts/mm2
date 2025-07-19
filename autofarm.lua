@@ -6,7 +6,7 @@ local LocalPlayer = Players.LocalPlayer
 local checkInterval = 0.5
 local tweenTime = 0.5
 local safeVoidPos = Vector3.new(0, -500, 0)
-local coinDropOffset = 4 -- Lower than before (half head height + extra)
+local coinDropOffset = 1 -- Lower than before (half head height + extra)
 
 if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
     LocalPlayer.CharacterAdded:Wait()
