@@ -6,7 +6,7 @@ local LocalPlayer = Players.LocalPlayer
 local checkInterval = 0.5
 local tweenTime = 0.5
 local safeVoidPos = Vector3.new(0, -500, 0)
-local headHeightOffset = 1.5 -- Half of typical head height (3 units)
+local coinDropOffset = 2.5 -- Lower than before (half head height + extra)
 
 if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
     LocalPlayer.CharacterAdded:Wait()
@@ -19,16 +19,25 @@ local function getHRP()
     return nil
 end
 
--- movement block
-local moveBlock = Instance.new("Part")
-moveBlock.Anchored = true
-moveBlock.CanCollide = false
-moveBlock.Size = Vector3.new(5,1,5)
-moveBlock.Transparency = 1
-moveBlock.Parent = workspace
+-- SAFE ANCHOR BLOCK (prevents falling)
+local anchorBlock = Instance.new("Part")
+anchorBlock.Name = "PlayerAnchor"
+anchorBlock.Anchored = true
+anchorBlock.CanCollide = false
+anchorBlock.Size = Vector3.new(5, 1, 5)
+anchorBlock.Transparency = 1
+anchorBlock.Parent = workspace
+
+-- Force player to stay on the anchor block
+local function anchorPlayer()
+    local hrp = getHRP()
+    if hrp then
+        hrp.CFrame = anchorBlock.CFrame + Vector3.new(0, 3, 0) -- Keeps player on top
+    end
+end
 
 local function tweenMove(pos)
-    local tween = TweenService:Create(moveBlock, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), {CFrame = CFrame.new(pos)})
+    local tween = TweenService:Create(anchorBlock, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), {CFrame = CFrame.new(pos)})
     tween:Play()
     tween.Completed:Wait()
 end
@@ -58,18 +67,19 @@ local function goToVoidSafe()
     tweenMove(safeVoidPos)
 end
 
+-- Update player position every frame
+RunService.Heartbeat:Connect(function()
+    anchorPlayer() -- Ensures player stays anchored
+end)
+
+-- Initialize anchor block on spawn
 LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(1)
-    moveBlock.CFrame = char:WaitForChild("HumanoidRootPart").CFrame - Vector3.new(0,3,0)
+    local hrp = char:WaitForChild("HumanoidRootPart")
+    anchorBlock.CFrame = hrp.CFrame - Vector3.new(0, 3, 0) -- Sync position
 end)
 
-RunService.Heartbeat:Connect(function()
-    local hrp = getHRP()
-    if hrp then
-        hrp.CFrame = moveBlock.CFrame + Vector3.new(0,3,0)
-    end
-end)
-
+-- Main coin collection loop
 task.spawn(function()
     while task.wait(checkInterval) do
         local hrp = getHRP()
@@ -77,15 +87,15 @@ task.spawn(function()
 
         local coin = getClosestCoin()
         if coin then
-            -- Position player lower (half head height below coin)
+            -- Go VERY LOW below the coin (better collection)
             local target = Vector3.new(
                 coin.Position.X,
-                coin.Position.Y - headHeightOffset,
+                coin.Position.Y - coinDropOffset, -- Lower than before
                 coin.Position.Z
             )
-            tweenMove(target - Vector3.new(0, 3, 0)) -- Additional 3 unit offset for HRP
+            tweenMove(target - Vector3.new(0, 3, 0)) -- Adjusts for HRP offset
         else
-            goToVoidSafe()
+            goToVoidSafe() -- Safe waiting spot
         end
     end
 end)
